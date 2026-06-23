@@ -14,3 +14,98 @@ datasource db {
   url      = env("DATABASE_URL_UNPOOLED")
   directUrl = env("DIRECT_URL")
 }
+
+enum UserRole {
+  CUSTOMER
+  AGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  role         UserRole @default(CUSTOMER)
+
+  ticketsCreated Ticket[] @relation("CustomerTickets")
+  ticketsAssigned Ticket[] @relation("AgentTickets")
+  comments       Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([email])
+}
+
+model Ticket {
+  id          String         @id @default(cuid())
+  title       String
+  description String
+
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+
+  customerId  String
+  agentId     String?
+
+  customer    User           @relation("CustomerTickets", fields: [customerId], references: [id])
+  agent       User?          @relation("AgentTickets", fields: [agentId], references: [id])
+
+  comments    Comment[]
+  tags        TicketTag[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([customerId])
+  @@index([agentId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  message   String
+
+  ticketId  String
+  userId    String
+
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([userId])
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  name   String @unique
+
+  tickets TicketTag[]
+}
+
+model TicketTag {
+  ticketId String
+  tagId    String
+
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, tagId])
+  @@index([tagId])
+}
