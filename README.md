@@ -1,36 +1,127 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# XenDesk — Internal Customer Support & Ticketing System
 
-## Getting Started
+A full-stack support ticketing application built for the XenFi Systems Senior Fullstack Engineer practical task. Customers submit and track support tickets; agents triage, assign, and resolve them.
 
-First, run the development server:
+## Live Demo
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **App:** [your Vercel URL here]
+- **Repo:** https://github.com/SoniaRMK/xendesk
+
+## Demo Credentials
+
+All seeded accounts share the password `Password123!`.
+
+| Role | Email |
+|------|-------|
+| Agent | `agent@xendesk.com` |
+| Agent | `agent2@xendesk.com` |
+| Customer | `customer@xendesk.com` |
+| Customer | `customer2@xendesk.com` |
+| Customer | `customer3@xendesk.com` |
+
+## Tech Stack & Why
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Framework | Next.js (App Router) | Server Components keep data fetching close to the database with no client-side waterfall; Server Actions remove the need for hand-written API boilerplate for mutations. |
+| Language | TypeScript | End-to-end type safety from the database (via Prisma's generated types) through to the UI. |
+| Database | PostgreSQL (Supabase) | Relational data with real foreign keys and a many-to-many tagging system is a natural fit for SQL over a document store. |
+| ORM | Prisma | Type-safe queries, declarative schema, and built-in migration tooling. Pinned to the stable 6.x line rather than the newly released 7.x, which at the time of building had sparse documentation and open issues affecting the driver-adapter model. |
+| Auth | NextAuth (Auth.js) v4, Credentials provider, JWT sessions | Credentials-based login matches the brief's two-role model without needing a third-party identity provider. JWT sessions avoid an extra database round-trip per request and avoid needing a sessions table. |
+| Styling | Tailwind CSS v4 | Utility-first styling with no separate CSS files to maintain; fast to iterate under time constraints. |
+| Validation | Zod | Schema validation shared between form expectations and server-side enforcement, with readable error messages. |
+
+## Architecture
+
+The codebase is organized by **layer**, not by feature:
+
+```
+src/
+  app/              → routes only: pages compose data + components, no business logic
+  components/       → UI, split into ui/ (generic) and feature folders (tickets/, comments/, etc.)
+  lib/              → cross-cutting concerns: db client, auth config, RBAC helpers, validation schemas
+  services/         → data access layer — the only code that calls Prisma directly
+  actions/          → Server Actions — validate input, enforce RBAC, then delegate to services
+  types/            → shared TypeScript types
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Why layers over features:** for a project this size, with one engineer and a tight deadline, having one obvious place to look for "anything that talks to the database" (`services/`) and one obvious place for "anything that mutates data" (`actions/`) reduces the chance of duplicated or inconsistent query logic, more than feature-colocation would have helped here.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Request flow for a mutation (e.g. changing ticket status)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Page** (`app/tickets/[id]/page.tsx`) — Server Component, fetches the ticket via the service layer, renders a form bound to a Server Action.
+2. **Client Component** (`components/tickets/TicketControls.tsx`) — the only piece of this flow that needs browser interactivity (auto-submitting a `select` on change), kept as small as possible.
+3. **Server Action** (`actions/ticket.actions.ts`) — re-derives the session server-side (never trusts the client), validates input with Zod, and only then calls the service layer.
+4. **Service** (`services/ticket.service.ts`) — the only code that issues the actual Prisma query.
 
-## Learn More
+### RBAC strategy
 
-To learn more about Next.js, take a look at the following resources:
+Enforced at three layers, since frontend checks alone are not sufficient:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Page-level guard** — every protected page calls `requireUser()` or `requireUser("AGENT" | "CUSTOMER")`, which redirects unauthenticated or wrong-role users before any data is fetched.
+2. **Action-level guard** — every Server Action calls `requireUserOrThrow()`, re-deriving the session server-side rather than trusting any role value passed from the client.
+3. **Query-level scoping** — a customer's ticket queries are filtered by `customerId` at the Prisma call itself. Attempting to view another customer's ticket by guessing its URL returns a 404, not a 403, so as not to confirm that the ticket exists.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Database Design
 
-## Deploy on Vercel
+```
+User ──< Ticket (as customer)
+User ──< Ticket (as agent, nullable)
+User ──< Comment
+Ticket ──< Comment
+Ticket >──< Tag   (via TicketTag join table)
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `Ticket.agentId` is nullable — tickets start unassigned, which powers the "Unassigned" dashboard metric and filter.
+- `Comment` cascades on ticket deletion; `Ticket` does not cascade on user deletion, so a ticket's history survives even if its customer or agent record is removed.
+- `TicketTag` is an explicit join model (rather than Prisma's implicit many-to-many) for clearer generated SQL and room to extend later (e.g. who applied a tag, when).
+- Indexes on `Ticket.status`, `Ticket.priority`, `Ticket.customerId`, and `Ticket.agentId` support the dashboard's filtering and metrics queries, which are the most frequent and highest-cardinality lookups in the app.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Setup
+
+Clone and install:
+
+    git clone https://github.com/SoniaRMK/xendesk.git
+    cd xendesk
+    npm install
+
+Create a `.env` file (see `.env.example`) with the following variables:
+
+    DATABASE_URL="<Supabase transaction pooler URL, port 6543, with &pgbouncer=true>"
+    DIRECT_URL="<Supabase session pooler URL, port 5432>"
+    NEXTAUTH_SECRET="<generate with: npx auth secret>"
+    NEXTAUTH_URL="http://localhost:3000"
+
+Generate the Prisma client, apply migrations, and seed demo data:
+
+    npx prisma generate
+    npx prisma migrate deploy
+    npx prisma db seed
+
+Run the dev server:
+
+    npm run dev
+
+Visit `http://localhost:3000` — you'll be redirected to `/login`.
+
+## Tradeoffs & Known Limitations
+
+Given the task's tight timeline, the following were deliberately scoped out rather than half-built:
+
+- **No dark mode.** The app forces light mode; system dark-mode preference is intentionally not respected, to avoid shipping inconsistent contrast across components.
+- **No signup flow.** Users are provisioned only via the seed script. This matches the brief's evaluation model (seeded accounts) and avoids building account-creation UX that wasn't requested.
+- **No tag management UI.** Tags are seeded directly; there's no admin screen to create/edit/delete tags. Filtering by existing tags is fully supported.
+- **No real-time updates.** The ticket conversation and dashboard require a page refresh to see changes made by another user in another session. Polling or WebSockets were considered but cut for time.
+- **No automated tests.** Given the timeline, effort went into correctness of the core flows (auth, RBAC, CRUD, comments, filtering) over test coverage. The most valuable tests to add next would cover: RBAC redirect behavior, ticket-status transitions, and ownership checks on comments.
+- **bcrypt (native bindings) rather than bcryptjs.** Works locally and on Vercel's standard Node runtime; flagged here in case a future deploy target doesn't support native module compilation.
+
+## Future Improvements
+
+- Real-time ticket updates via polling or WebSockets
+- Email notifications on ticket status change or new comment
+- Audit log of status changes and assignments
+- SLA tracking (e.g. time-to-first-response, time-to-resolution)
+- Tag management UI for agents
+- Pagination on the agent dashboard's ticket table for larger datasets
+- Automated test suite (Vitest for unit/service logic, Playwright for auth/RBAC flows)
+- CI pipeline (GitHub Actions: lint, type-check, build on every PR)
