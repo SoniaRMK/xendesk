@@ -4,7 +4,7 @@ A full-stack support ticketing application built for the XenFi Systems Senior Fu
 
 ## Live Demo
 
-- **App:** [your Vercel URL here]
+- **App:** https://xendesk-virid.vercel.app
 - **Repo:** https://github.com/SoniaRMK/xendesk
 
 ## Demo Credentials
@@ -30,6 +30,13 @@ All seeded accounts share the password `Password123!`.
 | Auth | NextAuth (Auth.js) v4, Credentials provider, JWT sessions | Credentials-based login matches the brief's two-role model without needing a third-party identity provider. JWT sessions avoid an extra database round-trip per request and avoid needing a sessions table. |
 | Styling | Tailwind CSS v4 | Utility-first styling with no separate CSS files to maintain; fast to iterate under time constraints. |
 | Validation | Zod | Schema validation shared between form expectations and server-side enforcement, with readable error messages. |
+
+## Beyond the Minimum Requirements
+
+Two of the brief's optional differentiators were completed:
+
+- **Targeted database indexing.** `@@index` on `Ticket.status`, `Ticket.priority`, `Ticket.customerId`, and `Ticket.agentId`, and on `Comment.ticketId`/`Comment.userId`, matching the actual filter and lookup patterns used by the dashboard and ticket pages. No caching layer was added; the indexing alone was judged sufficient at this data scale.
+- **Unit tests + CI.** 21 Vitest tests cover the RBAC permission helpers (`requireUser`, `requireUserOrThrow` — redirect behavior, role enforcement) and the Zod validation schemas (required fields, enum enforcement on ticket status/priority). A GitHub Actions workflow runs lint, type-check, tests, and build on every push to `main`. Tests were scoped to these two files deliberately, since they're pure-logic and fully isolatable without a live database; testing the service/action layers meaningfully would require a test database, which was out of scope for the available time.
 
 ## Architecture
 
@@ -92,6 +99,8 @@ Create a `.env` file (see `.env.example`) with the following variables:
     NEXTAUTH_SECRET="<generate with: npx auth secret>"
     NEXTAUTH_URL="http://localhost:3000"
 
+For a Vercel deployment, set the same four variables in Project Settings → Environment Variables, with `NEXTAUTH_URL` set to the deployed URL (e.g. `https://xendesk-virid.vercel.app`) rather than `localhost`.
+
 Generate the Prisma client, apply migrations, and seed demo data:
 
     npx prisma generate
@@ -112,8 +121,8 @@ Given the task's tight timeline, the following were deliberately scoped out rath
 - **No signup flow.** Users are provisioned only via the seed script. This matches the brief's evaluation model (seeded accounts) and avoids building account-creation UX that wasn't requested.
 - **No tag management UI.** Tags are seeded directly; there's no admin screen to create/edit/delete tags. Filtering by existing tags is fully supported.
 - **No real-time updates.** The ticket conversation and dashboard require a page refresh to see changes made by another user in another session. Polling or WebSockets were considered but cut for time.
-- **No automated tests.** Given the timeline, effort went into correctness of the core flows (auth, RBAC, CRUD, comments, filtering) over test coverage. The most valuable tests to add next would cover: RBAC redirect behavior, ticket-status transitions, and ownership checks on comments.
-- **bcrypt (native bindings) rather than bcryptjs.** Works locally and on Vercel's standard Node runtime; flagged here in case a future deploy target doesn't support native module compilation.
+- **Test coverage is intentionally narrow.** Tests cover RBAC and validation logic only (see "Beyond the Minimum Requirements" above); the service layer, Server Actions, and UI are untested. The most valuable next additions would be an integration test for the full ticket-status-change flow and an ownership check on the comment action, both of which need a test database to do meaningfully.
+- **bcrypt (native bindings) rather than bcryptjs.** Worked without issue on Vercel's standard Node runtime during deployment; flagged here in case a future deploy target doesn't support native module compilation.
 
 ## Future Improvements
 
@@ -123,5 +132,5 @@ Given the task's tight timeline, the following were deliberately scoped out rath
 - SLA tracking (e.g. time-to-first-response, time-to-resolution)
 - Tag management UI for agents
 - Pagination on the agent dashboard's ticket table for larger datasets
-- Automated test suite (Vitest for unit/service logic, Playwright for auth/RBAC flows)
-- CI pipeline (GitHub Actions: lint, type-check, build on every PR)
+- Integration tests for the service and Server Action layers (requires a test database)
+- End-to-end tests with Playwright for the full login → create ticket → comment → resolve flow
