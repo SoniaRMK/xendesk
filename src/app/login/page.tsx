@@ -34,7 +34,7 @@ export default function LoginPage() {
 
         setLoading(false);
 
-        const role = (session?.user as any)?.role;
+        const role = session?.user?.role;
 
         if (role === "AGENT") {
             router.push("/dashboard");

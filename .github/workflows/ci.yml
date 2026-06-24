@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-typecheck-build:
+    runs-on: ubuntu-latest
+
+    env:
+      # Build-time placeholder values so `next build` and `prisma generate`
+      # succeed without real secrets in CI. No live DB connection happens
+      # during build — all data fetching happens in dynamically-rendered
+      # Server Components, not statically at build time.
+      DATABASE_URL: "postgresql://user:password@localhost:5432/placeholder"
+      DIRECT_URL: "postgresql://user:password@localhost:5432/placeholder"
+      NEXTAUTH_SECRET: "ci-placeholder-secret-not-used-in-production"
+      NEXTAUTH_URL: "http://localhost:3000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
