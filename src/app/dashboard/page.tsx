@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { TicketStatus, TicketPriority } from "@prisma/client";
+import Link from "next/link";
 
 export default async function DashboardPage() {
   const tickets = await prisma.ticket.findMany({
@@ -81,9 +82,13 @@ export default async function DashboardPage() {
 
           <tbody>
             {tickets.map((ticket) => (
-              <tr key={ticket.id} className="border-t">
+              <tr key={ticket.id} className="border-t hover:bg-gray-50">
 
-                <td className="p-3">{ticket.title}</td>
+                <td className="p-3">
+                  <Link href={`/tickets/${ticket.id}`} className="hover:underline">
+                    {ticket.title}
+                  </Link>
+                </td>
 
                 <td className="p-3">{ticket.status}</td>
 
